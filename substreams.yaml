@@ -1,6 +1,6 @@
 specVersion: v0.1.0
 package:
-  name: 'apecoin'
+  name: 'bitcoin-cap-table'
   version: v1.0.0
 
 imports:
@@ -8,7 +8,7 @@ imports:
 
 protobuf:
   files:
-    - apecoin.proto
+    - bitcoin.proto
   importPaths:
     - ./proto
 
@@ -20,44 +20,25 @@ binaries:
 modules:
   - name: map_transfer
     kind: map
-    initialBlock: 14204532
+    initialBlock: 620000
     inputs:
-      - source: sf.ethereum.type.v2.Block
+      - source: sf.bitcoin.type.v1.Block
     output:
-      type: proto:eth.apecoin.v1.Transfers
-
-  -  name: map_approval
-     kind: map
-     initialBlock: 14204532
-     inputs:
-       - source: sf.ethereum.type.v2.Block
-     output:
-      type: proto:eth.apecoin.v1.Approvals
+      type: proto:bitcoin.Transfers
 
   - name: store_account_holdings
     kind: store
-    initialBlock: 14204532
+    initialBlock: 620000
     updatePolicy: add
     valueType: bigdecimal
     inputs:
       - map: map_transfer
 
-  - name: store_token
-    kind: store
-    initialBlock: 14204532
-    updatePolicy: set
-    valueType: proto:eth.apecoin.v1.Token
-    inputs:
-      - source: sf.ethereum.type.v2.Block 
-    
   - name: graph_out
     kind: map
     inputs:
       - map: map_transfer
-      - map: map_approval
       - store: store_account_holdings
-        mode: deltas
-      - store: store_token
         mode: deltas
     output:
       type: proto:substreams.entity.v1.EntityChanges

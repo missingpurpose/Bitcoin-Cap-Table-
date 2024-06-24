@@ -1,31 +1,29 @@
 [package]
-name = "apecoin"
+name = "bitcoin"
 version = "1.0.0"
-description = "Apecoin Substreams"
-edition = "2021"
+description = "bitcoin Substreams"
+edition = "2018"
 
 [lib]
 name = "substreams"
 crate-type = ["cdylib"]
 
 [dependencies]
-ethabi = "18.0.0"
 hex-literal = "0.4.1"
-bigdecimal = "0.3.0"
-prost = "0.11"
+bigdecimal = "0.4.5"
+prost = "0.11.5"
 substreams-entity-change = "1.2.2"
+substreams = { version = "0.5.19", features = ["handlers", "proc-macro"] }  # Ensure correct features
 
+reqwest = { version = "0.11", features = ["blocking"] }
 hex = "0.4.3"
 num-bigint = "0.4"
 pad = "0.1"
 thiserror = "1.0.37"
-prost-types = "0.11.8"
+prost-types = "0.11.5"
 
-
-# Use latest from https://crates.io/crates/substreams
-substreams = "0.5.6"
-# Use latest from https://crates.io/crates/substreams-ethereum
-substreams-ethereum = "0.9.1"
+# Use latest from https://crates.io/crates/substreams-bitcoin
+substreams-bitcoin = "1.0.0"  # Replace with the actual latest version
 
 # Required so that ethabi > ethereum-types build correctly under wasm32-unknown-unknown
 [target.wasm32-unknown-unknown.dependencies]
@@ -33,7 +31,7 @@ getrandom = { version = "0.2", features = ["custom"] }
 
 [build-dependencies]
 anyhow = "1"
-substreams-ethereum = "0.9.1"
+substreams-bitcoin = "1.0.0"  # Replace with the actual latest version
 
 [profile.release]
 lto = true

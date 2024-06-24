@@ -1,122 +1,93 @@
-mod abi;
 mod pb;
 mod utils;
 
+use std::fs::File;
+use std::io::Read;
 use std::str::FromStr;
 
-use crate::utils::helper::{append_0x, generate_id};
-use abi::abi::apecoin::v1 as apecoin_events;
-
-use pb::eth::apecoin::v1 as apecoin;
+use pb::bitcoin::v1 as bitcoin;
 use substreams::pb::substreams::store_delta::Operation;
 use substreams::scalar::BigDecimal;
 use substreams::store::{DeltaBigDecimal, StoreAdd, StoreAddBigDecimal};
 use substreams::{
     log,
     store::{DeltaProto, Deltas, StoreNew, StoreSet, StoreSetProto},
-    Hex,
+    substreams_macro::{map, store}, // Import the procedural macros from the correct path
 };
 
 use substreams_entity_change::{pb::entity::EntityChanges, tables::Tables};
-use substreams_ethereum::pb::eth;
-use utils::constants::{CONTRACT_ADDRESS, START_BLOCK};
-
 use substreams::errors::Error;
+use utils::constants::START_BLOCK;
 use utils::math::to_big_decimal;
+use serde::Deserialize;
 
-#[substreams::handlers::map]
-pub fn map_transfer(block: eth::v2::Block) -> Result<apecoin::Transfers, Error> {
-    Ok(apecoin::Transfers {
+#[derive(Deserialize)]
+struct BitcoinData {
+    block: bitcoin::Block,
+}
+
+fn read_bitcoin_data() -> Result<bitcoin::Block, Error> {
+    let mut file = File::open("src/data/bitcoin_data.json")?;
+    let mut data = String::new();
+    file.read_to_string(&mut data)?;
+    let bitcoin_data: BitcoinData = serde_json::from_str(&data)?;
+    Ok(bitcoin_data.block)
+}
+
+#[map] // Use the correct path for the procedural macro
+pub fn map_transfer() -> Result<bitcoin::Transfers, Error> {
+    let block = read_bitcoin_data()?;
+    Ok(bitcoin::Transfers {
         transfers: block
-            .events::<apecoin_events::events::Transfer>(&[&CONTRACT_ADDRESS])
-            .map(|(transfer, log)| {
-                log::info!("Apecoin transfer seen");
+            .transactions
+            .iter()
+            .flat_map(|tx| {
+                tx.outputs.iter().map(move |output| {
+                    log::info!("Bitcoin transfer seen");
 
-                apecoin::Transfer {
-                    from: Some(apecoin::Account {
-                        address: append_0x(&Hex(transfer.from).to_string()),
-                    }),
-                    to: Some(apecoin::Account {
-                        address: append_0x(&Hex(transfer.to).to_string()),
-                    }),
-                    block_number: block.number,
-                    timestamp: block.timestamp_seconds(),
-                    amount: to_big_decimal(transfer.value.to_string().as_str())
-                        .unwrap()
-                        .to_string(),
-                    tx_hash: append_0x(&Hex(&log.receipt.transaction.hash).to_string()),
-                    log_index: log.index(),
-                }
+                    bitcoin::Transfer {
+                        from: tx.inputs.iter().map(|input| input.address.clone()).collect(),
+                        to: output.address.clone(),
+                        block_number: block.number,
+                        timestamp: block.timestamp,
+                        amount: to_big_decimal(output.value.to_string().as_str())
+                            .unwrap()
+                            .to_string(),
+                        tx_hash: tx.hash.clone(),
+                        log_index: 0, // Bitcoin doesn't have log index, set to 0 or remove if not needed
+                    }
+                })
             })
             .collect(),
     })
 }
 
-#[substreams::handlers::map]
-pub fn map_approval(block: eth::v2::Block) -> Result<apecoin::Approvals, Error> {
-    Ok(apecoin::Approvals {
-        approvals: block
-            .events::<apecoin_events::events::Approval>(&[&CONTRACT_ADDRESS])
-            .map(|(approval, log)| {
-                log::info!("Apecoin approval seen");
-
-                apecoin::Approval {
-                    spender: append_0x(&Hex(approval.spender).to_string()),
-                    owner: Some(apecoin::Account {
-                        address: append_0x(&Hex(approval.owner).to_string()),
-                    }),
-                    block_number: block.number,
-                    timestamp: block.timestamp_seconds(),
-                    amount: to_big_decimal(approval.value.to_string().as_str())
-                        .unwrap()
-                        .to_string(),
-                    tx_hash: append_0x(&Hex(&log.receipt.transaction.hash).to_string()),
-                    log_index: log.index(),
-                }
-            })
-            .collect(),
-    })
-}
-
-#[substreams::handlers::store]
-pub fn store_account_holdings(i0: apecoin::Transfers, o: StoreAddBigDecimal) {
+#[store] // Use the correct path for the procedural macro
+pub fn store_account_holdings(i0: bitcoin::Transfers, o: StoreAddBigDecimal) {
     for transfer in i0.transfers {
         let amount_decimal = BigDecimal::from_str(transfer.amount.as_str())
             .unwrap()
             .with_prec(10);
-        o.add(
-            0,
-            format!("Account: {}", &transfer.from.as_ref().unwrap().address),
-            amount_decimal.neg(),
-        );
+        for from in transfer.from {
+            o.add(
+                0,
+                format!("Account: {}", from),
+                amount_decimal.neg(),
+            );
+        }
 
         o.add(
             0,
-            format!("Account: {}", &transfer.to.as_ref().unwrap().address),
+            format!("Account: {}", transfer.to),
             amount_decimal,
         );
     }
 }
 
-#[substreams::handlers::store]
-pub fn store_token(block: eth::v2::Block, o: StoreSetProto<apecoin::Token>) {
-    if block.number == START_BLOCK {
-        let token = &apecoin::Token {
-            name: "Apecoin".to_string(),
-            address: append_0x(Hex(CONTRACT_ADDRESS).to_string().as_str()),
-            decimal: "18".to_string(),
-            symbol: "Ape".to_string(),
-        };
-        o.set(0, format!("Token: {}", token.address), &token);
-    };
-}
-
-#[substreams::handlers::map]
+#[map] // Use the correct path for the procedural macro
 pub fn graph_out(
-    transfers: apecoin::Transfers,
-    approvals: apecoin::Approvals,
+    transfers: bitcoin::Transfers,
     account_holdings: Deltas<DeltaBigDecimal>,
-    tokens: Deltas<DeltaProto<apecoin::Token>>,
 ) -> Result<EntityChanges, Error> {
     let mut tables = Tables::new();
     for delta in account_holdings.deltas {
@@ -125,7 +96,6 @@ pub fn graph_out(
         match delta.operation {
             Operation::Create => {
                 let row = tables.create_row("Account", address);
-
                 row.set("holdings", delta.old_value);
             }
             Operation::Update => {
@@ -138,52 +108,15 @@ pub fn graph_out(
     }
 
     for transfer in &transfers.transfers {
-        let id: String = generate_id(&transfer.tx_hash, &transfer.log_index.to_string().as_str());
+        let id: String = format!("{}-{}", transfer.tx_hash, transfer.log_index);
         let row = tables.create_row("Transfer", &id);
 
-        row.set("sender", &transfer.from.as_ref().unwrap().address);
-        row.set("receiver", &transfer.to.as_ref().unwrap().address);
-        row.set(
-            "token",
-            append_0x(Hex(CONTRACT_ADDRESS).to_string().as_str()),
-        );
+        row.set("sender", &transfer.from.join(","));
+        row.set("receiver", &transfer.to);
         row.set("timestamp", transfer.timestamp);
         row.set("blockNumber", transfer.block_number);
-        row.set("logIndex", transfer.log_index);
         row.set("txHash", &transfer.tx_hash);
         row.set("amount", &transfer.amount);
-    }
-
-    for approval in &approvals.approvals {
-        let id: String = generate_id(&approval.tx_hash, &approval.log_index.to_string().as_str());
-        let row = tables.create_row("Approval", &id);
-
-        row.set("owner", &approval.owner.as_ref().unwrap().address);
-        row.set("timestamp", approval.timestamp);
-        row.set("spender", &approval.spender);
-        row.set(
-            "token",
-            append_0x(Hex(CONTRACT_ADDRESS).to_string().as_str()),
-        );
-        row.set("blockNumber", approval.block_number);
-        row.set("logIndex", approval.log_index);
-        row.set("txHash", &approval.tx_hash);
-        row.set("amount", &approval.amount);
-    }
-
-    for delta in tokens.deltas {
-        match delta.operation {
-            Operation::Create => {
-                let token_row = tables.create_row("Token", &delta.new_value.address);
-                token_row.set("name", delta.new_value.name);
-                token_row.set("address", delta.new_value.address);
-                token_row.set("decimals", delta.new_value.decimal);
-                token_row.set("symbol", delta.new_value.symbol);
-            }
-            Operation::Update => todo!(),
-            Operation::Delete => todo!(),
-            x => panic!("unsupported opeation {:?}", x),
-        };
     }
 
     let entity_changes = tables.to_entity_changes();
