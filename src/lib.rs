@@ -1,9 +1,9 @@
 mod pb;
 mod utils;
 
-use std::fs::File;
-use std::io::Read;
 use std::str::FromStr;
+use reqwest::blocking::Client;
+use serde::Deserialize;
 
 use pb::bitcoin::v1 as bitcoin;
 use substreams::pb::substreams::store_delta::Operation;
@@ -12,31 +12,30 @@ use substreams::store::{DeltaBigDecimal, StoreAdd, StoreAddBigDecimal};
 use substreams::{
     log,
     store::{DeltaProto, Deltas, StoreNew, StoreSet, StoreSetProto},
-    substreams_macro::{map, store}, // Import the procedural macros from the correct path
+    substreams_macro::{map, store},
 };
 
 use substreams_entity_change::{pb::entity::EntityChanges, tables::Tables};
 use substreams::errors::Error;
 use utils::constants::START_BLOCK;
 use utils::math::to_big_decimal;
-use serde::Deserialize;
 
 #[derive(Deserialize)]
 struct BitcoinData {
     block: bitcoin::Block,
 }
 
-fn read_bitcoin_data() -> Result<bitcoin::Block, Error> {
-    let mut file = File::open("src/data/bitcoin_data.json")?;
-    let mut data = String::new();
-    file.read_to_string(&mut data)?;
-    let bitcoin_data: BitcoinData = serde_json::from_str(&data)?;
-    Ok(bitcoin_data.block)
+fn fetch_bitcoin_data() -> Result<bitcoin::Block, Error> {
+    let client = Client::new();
+    let res = client.get("https://bitcoin.firehose.pinax.network:443")
+        .send()?
+        .json::<BitcoinData>()?;
+    Ok(res.block)
 }
 
-#[map] // Use the correct path for the procedural macro
+#[map]
 pub fn map_transfer() -> Result<bitcoin::Transfers, Error> {
-    let block = read_bitcoin_data()?;
+    let block = fetch_bitcoin_data()?;
     Ok(bitcoin::Transfers {
         transfers: block
             .transactions
@@ -54,7 +53,7 @@ pub fn map_transfer() -> Result<bitcoin::Transfers, Error> {
                             .unwrap()
                             .to_string(),
                         tx_hash: tx.hash.clone(),
-                        log_index: 0, // Bitcoin doesn't have log index, set to 0 or remove if not needed
+                        log_index: 0,
                     }
                 })
             })
@@ -62,7 +61,7 @@ pub fn map_transfer() -> Result<bitcoin::Transfers, Error> {
     })
 }
 
-#[store] // Use the correct path for the procedural macro
+#[store]
 pub fn store_account_holdings(i0: bitcoin::Transfers, o: StoreAddBigDecimal) {
     for transfer in i0.transfers {
         let amount_decimal = BigDecimal::from_str(transfer.amount.as_str())
@@ -84,7 +83,7 @@ pub fn store_account_holdings(i0: bitcoin::Transfers, o: StoreAddBigDecimal) {
     }
 }
 
-#[map] // Use the correct path for the procedural macro
+#[map]
 pub fn graph_out(
     transfers: bitcoin::Transfers,
     account_holdings: Deltas<DeltaBigDecimal>,

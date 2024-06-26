@@ -22,7 +22,7 @@ modules:
     kind: map
     initialBlock: 620000
     inputs:
-      - source: sf.bitcoin.type.v1.Block
+      - source: https://bitcoin.firehose.pinax.network:443
     output:
       type: proto:bitcoin.Transfers
 

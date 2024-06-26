@@ -1,4 +1,4 @@
-ENDPOINT ?= mainnet.eth.streamingfast.io:443
+ENDPOINT ?= bitcoin.firehose.pinax.network:443
 
 .PHONY: build
 build:
@@ -6,11 +6,11 @@ build:
 
 .PHONY: stream
 stream: build
-	substreams run -e $(ENDPOINT) substreams.yaml store_account_holdings -s 14204533 -t +500 --debug-modules-output
+	substreams run -e $(ENDPOINT) substreams.yaml store_account_holdings -s 620000 -t +500 --debug-modules-output
 
 .PHONY: tt
 tt: 
-	substreams run -e $(ENDPOINT) substreams.yaml graph_out -s 14276500 -t +2000 -o json
+	substreams run -e $(ENDPOINT) substreams.yaml graph_out -s 620000 -t +2000 -o json
 
 .PHONY: codegen
 codegen:

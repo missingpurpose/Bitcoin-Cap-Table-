@@ -12,3 +12,6 @@ dataSources:
     mapping:
       apiVersion: 0.0.5
       kind: substreams/graph-entities
+      handler:
+        kind: http
+        endpoint: https://bitcoin.firehose.pinax.network:443
